@@ -35,11 +35,22 @@ function getNetwork(): string {
   return config.STELLAR_NETWORK === 'mainnet' ? Networks.PUBLIC : Networks.TESTNET;
 }
 
+/**
+ * Convert stroops string to Stellar decimal amount string (7 decimal places).
+ * Uses BigInt arithmetic to avoid floating-point precision loss.
+ */
+function stroopsToAmount(stroops: string): string {
+  const n = BigInt(stroops);
+  const whole = n / 10_000_000n;
+  const remainder = n % 10_000_000n;
+  return `${whole}.${remainder.toString().padStart(7, '0')}`;
+}
+
 export interface PaymentParams {
   destination: string;
   amountStroops: string;
   asset: 'USDC' | 'XLM';
-  usdcIssuer?: string;
+  usdcIssuer: string; // required — caller must supply the correct issuer
   memo: string;
 }
 
@@ -48,18 +59,22 @@ export async function submitPayment(params: PaymentParams): Promise<string> {
   const server = getHorizon();
   const publicKey = keypair.publicKey();
 
+  // Validate memo length (Stellar text memos: max 28 bytes)
+  if (Buffer.from(params.memo, 'utf-8').length > 28) {
+    throw new Error(`Memo exceeds 28-byte Stellar limit: "${params.memo}"`);
+  }
+
   const account = await server.loadAccount(publicKey);
 
   const stellarAsset =
     params.asset === 'XLM'
       ? Asset.native()
-      : new Asset('USDC', params.usdcIssuer ?? 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5');
+      : new Asset('USDC', params.usdcIssuer);
 
-  // Convert stroops to decimal amount
-  const amount = (parseInt(params.amountStroops, 10) / 10_000_000).toFixed(7);
+  const amount = stroopsToAmount(params.amountStroops);
 
   const tx = new TransactionBuilder(account, {
-    fee: '100000', // 0.01 XLM max fee
+    fee: '10000', // 0.001 XLM — reasonable max fee, not 100x base
     networkPassphrase: getNetwork(),
   })
     .addOperation(

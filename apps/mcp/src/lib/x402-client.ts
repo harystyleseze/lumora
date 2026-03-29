@@ -1,5 +1,5 @@
 import type { PaymentChallenge, PaymentProof } from '@lumora/types';
-import { submitPayment } from '../stellar/wallet.js';
+import { submitPayment, getPublicKey } from '../stellar/wallet.js';
 import { config } from '../config.js';
 import { logger } from './logger.js';
 
@@ -14,6 +14,14 @@ export interface CallServiceResult {
   txHash: string;
   cost: string;
   amountPaid: string;
+}
+
+/** Convert stroops string to USDC decimal string. BigInt — no float precision loss. */
+function stroopsToUsdc(stroops: string): string {
+  const n = BigInt(stroops);
+  const whole = n / 10_000_000n;
+  const remainder = n % 10_000_000n;
+  return `${whole}.${remainder.toString().padStart(7, '0')}`;
 }
 
 export async function callServiceWithPayment(options: CallServiceOptions): Promise<CallServiceResult> {
@@ -39,7 +47,7 @@ export async function callServiceWithPayment(options: CallServiceOptions): Promi
   const accept = challenge.accepts[0];
   if (!accept) throw new Error('No payment options in 402 response');
 
-  const { maxAmountRequired, payTo, extra, maxTimeoutSeconds } = accept;
+  const { maxAmountRequired, payTo, extra } = accept;
   const requestId = challenge.requestId;
 
   logger.info({ requestId, amount: maxAmountRequired, payTo }, 'Received 402, submitting payment');
@@ -55,20 +63,20 @@ export async function callServiceWithPayment(options: CallServiceOptions): Promi
 
   logger.info({ txHash, requestId }, 'Payment submitted, retrying request');
 
-  // Step 3: Build proof header
+  // Step 3: Build proof header (use static import — no dynamic re-import needed)
   const proof: PaymentProof = {
     x402Version: 1,
     scheme: 'exact',
     network: 'stellar',
     payload: {
       txHash,
-      from: (await import('../stellar/wallet.js')).getPublicKey(),
+      from: getPublicKey(),
       amount: maxAmountRequired,
     },
   };
   const proofHeader = Buffer.from(JSON.stringify(proof)).toString('base64');
 
-  // Step 4: Retry with payment proof
+  // Step 4: Retry with payment proof + request ID
   const paidResponse = await fetch(url, {
     method: 'POST',
     headers: {
@@ -85,7 +93,7 @@ export async function callServiceWithPayment(options: CallServiceOptions): Promi
   }
 
   const result = await paidResponse.json();
-  const costUsdc = (parseInt(maxAmountRequired, 10) / 10_000_000).toFixed(7);
+  const costUsdc = stroopsToUsdc(maxAmountRequired); // BigInt — no precision loss
 
   return {
     result,

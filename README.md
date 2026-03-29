@@ -137,6 +137,7 @@ pnpm dev
 | `DATABASE_PATH` | No | Default: `./lumora.db` |
 | `AGENT_WALLET_SECRET` | MCP only | Agent's Stellar secret key |
 | `SPENDING_POLICY_CONTRACT_ID` | Optional | Soroban contract address |
+| `ROUTER_INTERNAL_URL` | Docker only | Internal router URL for server-side Next.js fetches (set automatically by docker-compose to `http://router:3001`) |
 
 ---
 

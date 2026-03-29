@@ -3,7 +3,10 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 
 async function getService(id: string): Promise<Service | null> {
-  const routerUrl = process.env['NEXT_PUBLIC_ROUTER_URL'] ?? 'http://localhost:3001';
+  const routerUrl =
+    process.env['ROUTER_INTERNAL_URL'] ??
+    process.env['NEXT_PUBLIC_ROUTER_URL'] ??
+    'http://localhost:3001';
   try {
     const res = await fetch(`${routerUrl}/services/${id}`, { next: { revalidate: 30 } });
     if (!res.ok) return null;

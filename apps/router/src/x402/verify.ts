@@ -15,7 +15,7 @@ export interface VerifyResult {
 export async function verifyPaymentHeader(
   xPaymentHeader: string,
   expectedRequestId: string,
-  serviceId: string,
+  _serviceId: string,
   priceUsdc: string,
 ): Promise<VerifyResult> {
   // 1. Decode base64 header
@@ -28,6 +28,10 @@ export async function verifyPaymentHeader(
   }
 
   const { txHash, from, amount } = proof.payload;
+
+  if (!txHash || !from || !amount) {
+    return { ok: false, error: 'Malformed payment proof: missing txHash, from, or amount' };
+  }
 
   // 2. Check anti-replay: tx hash not already used
   if (isPaymentUsed(txHash)) {
@@ -56,10 +60,9 @@ export async function verifyPaymentHeader(
     return { ok: false, error: 'Payment memo does not match request ID' };
   }
 
-  // 7. Verify amount is sufficient (in stroops)
+  // 7. Verify amount is sufficient using string-based conversion (no float precision loss)
   const requiredStroops = usdcToStroops(priceUsdc);
-  // Stellar SDK returns amount as decimal string (e.g. "0.0500000")
-  const paidStroops = BigInt(Math.round(parseFloat(payment.amount) * 10_000_000));
+  const paidStroops = usdcToStroops(payment.amount); // Horizon returns decimal e.g. "0.0500000"
   if (paidStroops < requiredStroops) {
     return { ok: false, error: `Insufficient payment: paid ${paidStroops}, required ${requiredStroops}` };
   }

@@ -1,8 +1,11 @@
+// pdfjs-dist v4 legacy build — includes worker inline, no external worker needed
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { logger } from './logger.js';
 
-// Disable worker for server-side use
-pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+// Disable web worker for Node.js server-side use.
+// Setting workerSrc to a non-URL string prevents worker spawn attempts.
+// The legacy build falls back to synchronous rendering when no worker is available.
+(pdfjsLib.GlobalWorkerOptions as { workerSrc: string }).workerSrc = 'suppress';
 
 export interface ExtractTextResult {
   text: string;
@@ -23,7 +26,7 @@ export interface ToJsonResult {
 }
 
 async function loadDocument(input: { url?: string; base64?: string }) {
-  let data: ArrayBuffer | string;
+  let data: ArrayBuffer;
 
   if (input.url) {
     logger.debug({ url: input.url }, 'Fetching PDF from URL');
@@ -35,12 +38,20 @@ async function loadDocument(input: { url?: string; base64?: string }) {
     }
     data = await response.arrayBuffer();
   } else if (input.base64) {
-    data = Buffer.from(input.base64, 'base64').buffer as ArrayBuffer;
+    // Correctly extract a standalone ArrayBuffer from a Node.js Buffer
+    // (Buffer.buffer may be a shared pool — must slice to get correct view)
+    const buf = Buffer.from(input.base64, 'base64');
+    data = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
   } else {
     throw new Error('Either url or base64 must be provided');
   }
 
-  return pdfjsLib.getDocument({ data, useWorkerFetch: false, isEvalSupported: false }).promise;
+  return pdfjsLib.getDocument({
+    data,
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    disableRange: false,
+  }).promise;
 }
 
 export async function extractText(input: { url?: string; base64?: string }): Promise<ExtractTextResult> {
@@ -55,6 +66,7 @@ export async function extractText(input: { url?: string; base64?: string }): Pro
       .map((item) => ('str' in item ? item.str : ''))
       .join(' ');
     textParts.push(pageText);
+    page.cleanup();
   }
 
   const text = textParts.join('\n\n');
@@ -76,6 +88,7 @@ export async function toJson(input: { url?: string; base64?: string }): Promise<
       .join(' ');
     const wordCount = text.split(/\s+/).filter(Boolean).length;
     pages.push({ num: i, text, wordCount });
+    page.cleanup();
   }
 
   const wordCount = pages.reduce((sum, p) => sum + p.wordCount, 0);

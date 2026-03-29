@@ -1,8 +1,8 @@
 services:
   router:
     build:
-      context: apps/router
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/router/Dockerfile
     ports:
       - "3001:3001"
     volumes:
@@ -33,8 +33,8 @@ services:
 
   pdf:
     build:
-      context: services/pdf
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/pdf/Dockerfile
     ports:
       - "3002:3002"
     environment:
@@ -49,13 +49,16 @@ services:
 
   marketplace:
     build:
-      context: apps/marketplace
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/marketplace/Dockerfile
+      args:
+        NEXT_PUBLIC_ROUTER_URL: ${NEXT_PUBLIC_ROUTER_URL:-http://localhost:3001}
     ports:
       - "3000:3000"
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_ROUTER_URL: ${NEXT_PUBLIC_ROUTER_URL:-http://localhost:3001}
+      ROUTER_INTERNAL_URL: http://router:3001
     depends_on:
       router:
         condition: service_healthy

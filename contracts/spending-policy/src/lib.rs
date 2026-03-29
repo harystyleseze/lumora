@@ -86,13 +86,14 @@ impl SpendingPolicy {
             assert!(new_total <= limit, "daily spending limit exceeded");
         }
 
-        // Temporary storage: expires after ~1 day (17,280 ledgers)
+        // Temporary storage — always extend TTL to 17,280 ledgers (~1 day) from now.
+        // Use threshold=0 so extension always fires regardless of current TTL.
         env.storage()
             .temporary()
             .set(&key, &new_total);
         env.storage()
             .temporary()
-            .extend_ttl(&key, 17_280, 17_280);
+            .extend_ttl(&key, 0, 17_280);
     }
 
     /// Get total amount spent today by the agent (in USDC stroops).
@@ -127,4 +128,5 @@ impl SpendingPolicy {
     }
 }
 
+#[cfg(test)]
 mod test;

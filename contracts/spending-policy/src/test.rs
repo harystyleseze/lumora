@@ -53,8 +53,8 @@ fn test_record_spend_and_remaining() {
     // Can still spend
     assert!(client.is_within_limit(&agent, &500000_i128));
 
-    // Cannot overspend
-    assert!(!client.is_within_limit(&agent, &9_5000001_i128));
+    // Cannot overspend — remaining is 9_500_000, so 9_500_001 exceeds it
+    assert!(!client.is_within_limit(&agent, &9_500_001_i128));
 }
 
 #[test]

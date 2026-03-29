@@ -4,23 +4,24 @@ import { recordPayment } from '../db/queries/payments.js';
 import { insertLog } from '../db/queries/logs.js';
 import { buildChallenge } from '../x402/challenge.js';
 import { verifyPaymentHeader } from '../x402/verify.js';
-import { createServiceProxy } from '../lib/proxy.js';
+import { getServiceProxy } from '../lib/proxy.js';
 import { notifySpend } from '../stellar/soroban.js';
+import { config } from '../config.js';
 import { logger } from '../lib/logger.js';
 
 const router = Router();
 
-// In-memory store for pending request IDs (maps requestId → serviceId)
-// These are only valid for PAYMENT_EXPIRY_SECONDS
+// Pending requests: requestId → { serviceId, expiresAt }
+// Issued on 402; consumed on successful payment verification.
 const pendingRequests = new Map<string, { serviceId: string; expiresAt: number }>();
 
-// Clean up expired pending requests every minute
+// Evict expired pending requests every minute
 setInterval(() => {
   const now = Date.now();
   for (const [id, val] of pendingRequests) {
     if (now > val.expiresAt) pendingRequests.delete(id);
   }
-}, 60_000);
+}, 60_000).unref(); // .unref() so this timer doesn't prevent process exit
 
 router.all('/services/:serviceId', async (req: Request, res: Response) => {
   const start = Date.now();
@@ -34,13 +35,12 @@ router.all('/services/:serviceId', async (req: Request, res: Response) => {
 
   const xPayment = req.headers['x-payment'] as string | undefined;
 
-  // ── No payment header: issue 402 challenge ────────────────────────────────
+  // ── No payment header: issue 402 challenge ──────────────────────────────────
   if (!xPayment) {
     const resourceUrl = `${req.protocol}://${req.get('host')}${req.path}`;
     const challenge = buildChallenge(service, resourceUrl);
+    const expiryMs = config.PAYMENT_EXPIRY_SECONDS * 1000;
 
-    // Store pending request so we can verify the requestId later
-    const expiryMs = (parseInt(process.env['PAYMENT_EXPIRY_SECONDS'] ?? '300', 10)) * 1000;
     pendingRequests.set(challenge.requestId, {
       serviceId: service.id,
       expiresAt: Date.now() + expiryMs,
@@ -51,24 +51,36 @@ router.all('/services/:serviceId', async (req: Request, res: Response) => {
     return;
   }
 
-  // ── Payment header present: verify ───────────────────────────────────────
-  // Extract requestId from the X-PAYMENT header
-  let requestId: string;
-  try {
-    const decoded = JSON.parse(Buffer.from(xPayment, 'base64').toString('utf-8'));
-    // The request ID must be passed by the client; we look it up from pending
-    // Clients must include x-request-id header matching the 402 requestId
-    requestId = (req.headers['x-request-id'] as string) ?? decoded.requestId ?? '';
-  } catch {
-    res.status(400).json({ error: 'Malformed X-PAYMENT header' });
-    return;
-  }
+  // ── Payment header present: extract requestId ───────────────────────────────
+  // The client must include the X-Request-ID header with the requestId from the 402 challenge.
+  const requestId = req.headers['x-request-id'] as string | undefined;
 
   if (!requestId) {
-    res.status(400).json({ error: 'Missing X-Request-ID header' });
+    res.status(400).json({ error: 'Missing X-Request-ID header (must match requestId from the 402 challenge)' });
     return;
   }
 
+  // ── Validate that this requestId was issued by us ───────────────────────────
+  // This prevents an attacker from submitting an arbitrary payment without first
+  // receiving a 402 challenge from this router instance.
+  const pending = pendingRequests.get(requestId);
+  if (!pending) {
+    res.status(400).json({ error: 'Unknown or expired request ID. Make an unpaid request first to receive a 402 challenge.' });
+    return;
+  }
+
+  if (pending.serviceId !== service.id) {
+    res.status(400).json({ error: 'Request ID does not match service' });
+    return;
+  }
+
+  if (Date.now() > pending.expiresAt) {
+    pendingRequests.delete(requestId);
+    res.status(402).json({ error: 'Request ID expired. Please retry to get a fresh 402 challenge.' });
+    return;
+  }
+
+  // ── Verify payment ──────────────────────────────────────────────────────────
   const result = await verifyPaymentHeader(xPayment, requestId, service.id, service.priceUsdc);
 
   if (!result.ok) {
@@ -78,27 +90,40 @@ router.all('/services/:serviceId', async (req: Request, res: Response) => {
     return;
   }
 
-  // ── Record payment ────────────────────────────────────────────────────────
-  recordPayment({
-    txHash: result.proof!.payload.txHash,
-    serviceId: service.id,
-    requestId,
-    fromAddress: result.fromAddress!,
-    amountRaw: result.proof!.payload.amount,
-    asset: 'USDC',
-  });
+  // ── Record payment (SQLite UNIQUE on tx_hash prevents double-spend) ─────────
+  // Gracefully handle the race where two concurrent requests pass verification
+  // before either records payment — the second INSERT will violate UNIQUE constraint.
+  try {
+    recordPayment({
+      txHash: result.proof!.payload.txHash,
+      serviceId: service.id,
+      requestId,
+      fromAddress: result.fromAddress!,
+      amountRaw: result.proof!.payload.amount,
+      asset: 'USDC',
+    });
+  } catch (err: unknown) {
+    const isUniqueViolation =
+      err instanceof Error && err.message.includes('UNIQUE constraint');
+    if (isUniqueViolation) {
+      res.status(402).json({ error: 'Payment already used' });
+      return;
+    }
+    throw err;
+  }
 
+  // Consume the pending request
   pendingRequests.delete(requestId);
 
-  logger.info({ serviceId, txHash: result.proof!.payload.txHash, from: result.fromAddress }, 'Payment verified, proxying');
+  logger.info(
+    { serviceId, txHash: result.proof!.payload.txHash, from: result.fromAddress },
+    'Payment verified, proxying',
+  );
 
-  // Fire-and-forget Soroban notification
+  // Fire-and-forget Soroban spend notification (non-blocking)
   void notifySpend(result.fromAddress!, result.proof!.payload.amount, service.id);
 
-  // ── Proxy to upstream ─────────────────────────────────────────────────────
-  const proxy = createServiceProxy(service);
-
-  // Remove payment headers before forwarding
+  // Remove payment headers before forwarding to upstream
   delete req.headers['x-payment'];
   delete req.headers['x-request-id'];
 
@@ -110,10 +135,14 @@ router.all('/services/:serviceId', async (req: Request, res: Response) => {
     durationMs: Date.now() - start,
   });
 
-  proxy(req, res, (err) => {
+  // ── Proxy to upstream service ───────────────────────────────────────────────
+  const proxy = getServiceProxy(service);
+  proxy(req, res, (err: unknown) => {
     if (err) {
-      logger.error({ err }, 'Proxy error after payment');
-      res.status(502).json({ error: 'Upstream service unavailable' });
+      logger.error({ err }, 'Proxy error after payment verification');
+      if (!res.headersSent) {
+        res.status(502).json({ error: 'Upstream service unavailable' });
+      }
     }
   });
 });

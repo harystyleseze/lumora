@@ -65,7 +65,7 @@ export interface PaymentRecord {
 export interface RegisterServiceInput {
   id: string;
   name: string;
-  description: string;
+  description?: string;
   upstreamUrl: string;
   method?: 'GET' | 'POST';
   priceUsdc: string;

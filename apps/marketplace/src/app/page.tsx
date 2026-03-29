@@ -2,7 +2,12 @@ import type { Service } from '@lumora/types';
 import Link from 'next/link';
 
 async function getServices(): Promise<Service[]> {
-  const routerUrl = process.env['NEXT_PUBLIC_ROUTER_URL'] ?? 'http://localhost:3001';
+  // Use ROUTER_INTERNAL_URL for server-side fetches (e.g. http://router:3001 inside Docker)
+  // Fall back to NEXT_PUBLIC_ROUTER_URL for non-Docker local dev
+  const routerUrl =
+    process.env['ROUTER_INTERNAL_URL'] ??
+    process.env['NEXT_PUBLIC_ROUTER_URL'] ??
+    'http://localhost:3001';
   try {
     const res = await fetch(`${routerUrl}/services`, { next: { revalidate: 30 } });
     if (!res.ok) return [];

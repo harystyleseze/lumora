@@ -1,11 +1,51 @@
 import Database from 'better-sqlite3';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { config } from '../config.js';
 import { logger } from '../lib/logger.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// Embedded schema — avoids __dirname path issues when bundled with tsup
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS services (
+  id           TEXT    PRIMARY KEY,
+  name         TEXT    NOT NULL,
+  description  TEXT,
+  upstream_url TEXT    NOT NULL,
+  method       TEXT    NOT NULL DEFAULT 'POST',
+  price_usdc   TEXT    NOT NULL,
+  price_xlm    TEXT,
+  asset        TEXT    NOT NULL DEFAULT 'USDC',
+  input_schema TEXT,
+  output_schema TEXT,
+  tags         TEXT,
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  created_at   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  tx_hash      TEXT    PRIMARY KEY,
+  service_id   TEXT    NOT NULL,
+  request_id   TEXT    NOT NULL UNIQUE,
+  from_address TEXT    NOT NULL,
+  amount_raw   TEXT    NOT NULL,
+  asset        TEXT    NOT NULL,
+  created_at   INTEGER NOT NULL,
+  FOREIGN KEY (service_id) REFERENCES services(id)
+);
+
+CREATE TABLE IF NOT EXISTS request_log (
+  id           TEXT    PRIMARY KEY,
+  service_id   TEXT    NOT NULL,
+  tx_hash      TEXT,
+  from_address TEXT,
+  status       TEXT    NOT NULL,
+  duration_ms  INTEGER,
+  created_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_payments_request_id  ON payments(request_id);
+CREATE INDEX IF NOT EXISTS idx_payments_created_at  ON payments(created_at);
+CREATE INDEX IF NOT EXISTS idx_request_log_service  ON request_log(service_id);
+CREATE INDEX IF NOT EXISTS idx_request_log_created  ON request_log(created_at);
+`;
 
 let _db: Database.Database | null = null;
 
@@ -15,9 +55,7 @@ export function getDb(): Database.Database {
   _db = new Database(config.DATABASE_PATH);
   _db.pragma('journal_mode = WAL');
   _db.pragma('foreign_keys = ON');
-
-  const schema = readFileSync(join(__dirname, 'schema.sql'), 'utf-8');
-  _db.exec(schema);
+  _db.exec(SCHEMA);
 
   logger.info({ path: config.DATABASE_PATH }, 'Database initialized');
   return _db;

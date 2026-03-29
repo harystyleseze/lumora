@@ -81,9 +81,11 @@ export function getServiceStats(serviceId: string): { totalRequests: number; pai
   const db = getDb();
   const total = (db.prepare('SELECT COUNT(*) as cnt FROM request_log WHERE service_id = ?').get(serviceId) as { cnt: number }).cnt;
   const paid = (db.prepare("SELECT COUNT(*) as cnt FROM request_log WHERE service_id = ? AND status = 'paid'").get(serviceId) as { cnt: number }).cnt;
-  const revenue = (db.prepare("SELECT SUM(CAST(amount_raw AS INTEGER)) as total FROM payments WHERE service_id = ?").get(serviceId) as { total: number | null }).total ?? 0;
-  const service = getService(serviceId);
-  // Convert stroops to USDC (7 decimal places)
-  const revenueUsdc = (revenue / 10_000_000).toFixed(7);
+  // Sum as text to preserve precision, then convert with BigInt arithmetic
+  const rows = db.prepare('SELECT amount_raw FROM payments WHERE service_id = ?').all(serviceId) as { amount_raw: string }[];
+  const totalStroops = rows.reduce((sum, r) => sum + BigInt(r.amount_raw), 0n);
+  const whole = totalStroops / 10_000_000n;
+  const remainder = totalStroops % 10_000_000n;
+  const revenueUsdc = `${whole}.${remainder.toString().padStart(7, '0')}`;
   return { totalRequests: total, paidRequests: paid, totalRevenue: revenueUsdc };
 }

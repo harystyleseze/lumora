@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { insertService, deleteService, listServices } from '../db/queries/services.js';
+import { evictProxyCache } from '../lib/proxy.js';
 
 const router = Router();
 
@@ -47,11 +48,13 @@ router.post('/admin/services', (req, res) => {
 });
 
 router.delete('/admin/services/:id', (req, res) => {
-  const deleted = deleteService(req.params['id']!);
+  const id = req.params['id']!;
+  const deleted = deleteService(id);
   if (!deleted) {
     res.status(404).json({ error: 'Service not found' });
     return;
   }
+  evictProxyCache(id);
   res.json({ ok: true });
 });
 
