@@ -85,7 +85,7 @@ lumora/
 ## Quick Start (Docker)
 
 ```bash
-git clone https://github.com/lumora-dev/lumora
+git clone https://github.com/harystyleseze/lumora
 cd lumora
 
 # Copy and fill in your Stellar wallet keys
