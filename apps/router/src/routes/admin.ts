@@ -1,0 +1,63 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { config } from '../config.js';
+import { insertService, deleteService, listServices } from '../db/queries/services.js';
+
+const router = Router();
+
+// Auth middleware for admin routes
+router.use((req, res, next) => {
+  const apiKey = req.headers['x-admin-key'];
+  if (apiKey !== config.ADMIN_API_KEY) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return;
+  }
+  next();
+});
+
+const registerSchema = z.object({
+  id: z.string().min(1).regex(/^[a-z0-9-]+$/),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  upstreamUrl: z.string().url(),
+  method: z.enum(['GET', 'POST']).optional(),
+  priceUsdc: z.string().regex(/^\d+(\.\d{1,7})?$/),
+  priceXlm: z.string().optional(),
+  inputSchema: z.record(z.unknown()).optional(),
+  outputSchema: z.record(z.unknown()).optional(),
+  tags: z.array(z.string()).optional(),
+});
+
+router.post('/admin/services', (req, res) => {
+  const parsed = registerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten() });
+    return;
+  }
+  try {
+    const service = insertService(parsed.data);
+    res.status(201).json({ service });
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.includes('UNIQUE constraint')) {
+      res.status(409).json({ error: 'Service ID already exists' });
+      return;
+    }
+    throw err;
+  }
+});
+
+router.delete('/admin/services/:id', (req, res) => {
+  const deleted = deleteService(req.params['id']!);
+  if (!deleted) {
+    res.status(404).json({ error: 'Service not found' });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+router.get('/admin/services', (_req, res) => {
+  const services = listServices(false);
+  res.json({ services });
+});
+
+export default router;

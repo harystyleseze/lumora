@@ -1,0 +1,23 @@
+{
+  "name": "@lumora/pdf",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup src/index.ts --format esm --no-splitting",
+    "start": "node dist/index.js",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "fastify": "^5.3.3",
+    "pdfjs-dist": "^4.10.38",
+    "pino": "^9.6.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "tsup": "8.5.1",
+    "tsx": "4.21.0",
+    "typescript": "6.0.2"
+  }
+}

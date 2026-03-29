@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.turbo/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.local
+.env*.local
+.next/
+*.wasm
+target/
