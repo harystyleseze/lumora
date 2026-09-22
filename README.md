@@ -138,6 +138,10 @@ pnpm dev
 | `AGENT_WALLET_SECRET` | MCP only | Agent's Stellar secret key |
 | `SPENDING_POLICY_CONTRACT_ID` | Optional | Soroban contract address |
 | `ROUTER_INTERNAL_URL` | Docker only | Internal router URL for server-side Next.js fetches (set automatically by docker-compose to `http://router:3001`) |
+| `MAX_PAYMENT_USDC` | MCP only | Per-request spend cap, as a decimal USDC string. Default: `10` |
+| `ALLOWED_PAY_TO` | MCP only, optional | Comma-separated list of Stellar public keys the agent may pay. Empty/unset means the agent will only ever pay the router's own wallet (`ROUTER_WALLET_PUBLIC`, also set on the MCP side) |
+
+The MCP server also reads `ROUTER_WALLET_PUBLIC` and `USDC_ISSUER` (same meaning as above) to validate that every x402 payment challenge is paying the expected router wallet in the expected USDC asset before it submits a payment; anything else is refused.
 
 ---
 
@@ -155,7 +159,11 @@ Add to `~/.claude.json`:
         "ROUTER_URL": "http://localhost:3001",
         "AGENT_WALLET_SECRET": "SAGENT...",
         "STELLAR_NETWORK": "testnet",
-        "STELLAR_HORIZON_URL": "https://horizon-testnet.stellar.org"
+        "STELLAR_HORIZON_URL": "https://horizon-testnet.stellar.org",
+        "USDC_ISSUER": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        "ROUTER_WALLET_PUBLIC": "GROUTER...",
+        "MAX_PAYMENT_USDC": "10",
+        "ALLOWED_PAY_TO": ""
       }
     }
   }
