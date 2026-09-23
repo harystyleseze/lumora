@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import {
+  isValidStellarPublicKey,
+  isWeakAdminKey,
+  MIN_MAINNET_ADMIN_KEY_LENGTH,
+  walletSecretMatchesPublicKey,
+} from './config-validation.js';
 
 const schema = z.object({
   PORT: z.coerce.number().default(3001),

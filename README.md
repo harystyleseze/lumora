@@ -133,7 +133,7 @@ pnpm dev
 | `PDF_INTERNAL_KEY` | Yes (non-dev) | Shared secret sent as `x-internal-key` when the router proxies to the PDF service; the PDF service refuses to start without it outside development |
 | `STELLAR_NETWORK` | No | `testnet` (default) or `mainnet` |
 | `STELLAR_HORIZON_URL` | No | Default: Horizon testnet |
-| `USDC_ISSUER` | No | Default: testnet USDC issuer |
+| `USDC_ISSUER` | No | Default: testnet USDC issuer. Must be a valid Stellar Ed25519 public key ("G...") |
 | `PAYMENT_EXPIRY_SECONDS` | No | Default: 300 |
 | `DATABASE_PATH` | No | Default: `./lumora.db` |
 | `AGENT_WALLET_SECRET` | MCP only | Agent's Stellar secret key |
