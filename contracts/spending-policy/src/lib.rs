@@ -5,16 +5,24 @@ use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, String};
 #[contracttype]
 #[derive(Clone)]
 pub enum DataKey {
-    /// Persistent: agent address → daily limit in USDC stroops
+    /// Persistent: agent address → daily limit in USDC stroops.
+    ///
+    /// A limit of 0 means "no limit configured" (unlimited spending), never
+    /// "spending disabled". `set_limit` rejects a caller-supplied 0, so a
+    /// stored value of 0 can only mean the agent has not called
+    /// `set_limit` yet — reads of a missing entry default to 0 for the
+    /// same reason. There is no way to represent "no spending allowed"
+    /// with this key; that must be enforced elsewhere if ever needed.
     Limit(Address),
     /// Temporary: (agent address, day_number) → total spent today in stroops
     Spent(Address, u64),
 }
 
-/// Day number derived from ledger sequence.
-/// Stellar mainnet produces ~17,280 ledgers/day (5s per ledger).
+/// Day number derived from the ledger close time (Unix timestamp, seconds).
+/// Using the timestamp instead of the ledger sequence avoids drift, since
+/// ledger close times are not exactly 5 seconds apart in practice.
 fn day_number(env: &Env) -> u64 {
-    env.ledger().sequence() as u64 / 17_280
+    env.ledger().timestamp() / 86_400
 }
 
 #[contract]
@@ -32,7 +40,9 @@ impl SpendingPolicy {
             .set(&DataKey::Limit(agent), &daily_limit_stroops);
     }
 
-    /// Get the daily spending limit for an agent (0 if not set = unlimited).
+    /// Get the daily spending limit for an agent.
+    /// Returns 0 if no limit has ever been set, which means unlimited
+    /// spending — see the doc comment on `DataKey::Limit`.
     pub fn get_limit(env: Env, agent: Address) -> i128 {
         env.storage()
             .persistent()
